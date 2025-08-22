@@ -349,58 +349,79 @@
       document.getElementById("pantalla-juego").scrollIntoView({ block: 'start' });
     }
 
-    async function tirarDado() {
-      const dado = document.getElementById("dado");
-      const mensaje = document.getElementById("mensaje-premio");
-      const boton = document.getElementById("tirar-btn");
-      const btnWsp = document.getElementById("btn-wsp");
+    // poner esto UNA vez junto a tus otras variables globales:
+let animEnCurso = false;
 
-      // Revalidación final
-      const jugo = await yaJugoHoy(usuario, fingerprint);
-      if (jugo) {
-        mensaje.innerText = `⛔ YA COBRASTE HOY — ${jugo.premio}`;
-        boton.disabled = true;
-        btnWsp.style.display = 'none';
-        return;
+// REEMPLAZAR tu función tirarDado() completa por esta:
+async function tirarDado() {
+  const dado = document.getElementById("dado");
+  const mensaje = document.getElementById("mensaje-premio");
+  const boton = document.getElementById("tirar-btn");
+  const btnWsp = document.getElementById("btn-wsp"); // puede no existir en todas las skins
+
+  if (animEnCurso) return;        // evita doble toque/ghost tap
+  animEnCurso = true;
+
+  // Revalidación final (bloqueo por día)
+  const jugo = await yaJugoHoy(usuario, fingerprint);
+  if (jugo) {
+    mensaje.innerText = `⛔ YA COBRASTE HOY — ${jugo.premio}`;
+    if (boton) boton.disabled = true;
+    if (btnWsp) btnWsp.style.display = 'none';
+    animEnCurso = false;
+    return;
+  }
+
+  if (boton) boton.disabled = true;
+  mensaje.innerText = "";
+  if (btnWsp) btnWsp.style.display = 'none';
+
+  // 👉 Pre-seleccionamos el resultado final (0..5)
+  const resultadoFinal = Math.floor(Math.random() * 6);
+
+  // 👉 Animación: pasos “random” y el último paso es el resultadoFinal
+  let paso = 0;
+  const PASOS_TOTALES = 30;     // ~3s si intervalo=100ms
+  const intervalo = setInterval(() => {
+    if (paso < PASOS_TOTALES - 1) {
+      const intermedio = Math.floor(Math.random() * 6);
+      mostrarCara(intermedio);
+      dado.style.transform = `rotate(${Math.random() * 720}deg)`;
+      paso++;
+    } else {
+      clearInterval(intervalo);
+
+      // Cara final elegida
+      mostrarCara(resultadoFinal);
+      dado.style.transform = "rotate(0deg)";
+
+      const premioTxt = premios[resultadoFinal];
+
+      // Mensaje (dejá el texto como usabas en cada skin si querés)
+      mensaje.innerText = `🎉 ${usuario}, ¡TE LLEVÁS: ${premioTxt}! ✨\n📸 CAPTURÁ Y RECLAMÁ TU PREMIO`;
+
+      // WhatsApp (si esa skin lo usa)
+      if (btnWsp && typeof armarLinkWsp === 'function') {
+        btnWsp.href = armarLinkWsp(usuario, premioTxt);
+        btnWsp.style.display = 'inline-block';
       }
 
-      boton.disabled = true;
-      mensaje.innerText = "";
-      btnWsp.style.display = 'none';
+      lanzarConfeti();
 
-      let vueltas = 0;
-      const intervalo = setInterval(() => {
-        const caraRandom = Math.floor(Math.random() * 6);
-        mostrarCara(caraRandom);
-        dado.style.transform = `rotate(${Math.random() * 720}deg)`;
-        vueltas++;
-        if (vueltas >= 30) clearInterval(intervalo);
-      }, 100);
-
-      setTimeout(async () => {
-        const resultado = Math.floor(Math.random() * 6);
-        mostrarCara(resultado);
-        dado.style.transform = "rotate(0deg)";
-
-        const premioTxt = premios[resultado];
-        const mensajeTexto = `💼 ${usuario}, ¡TE LLEVÁS: ${premioTxt}! 🥃\n📸 CAPTURÁ Y RECLAMÁ TU PREMIO`;
-        mensaje.innerText = mensajeTexto;
-
-        // WhatsApp
-        const link = armarLinkWsp(usuario, premioTxt);
-        btnWsp.href = link;
-        btnWsp.style.display = 'inline-block';
-
-        lanzarConfeti();
-
-        try {
-          await registrarGiro(usuario, fingerprint, premioTxt);
-        } catch (e) {
+      // Registrar en la nube el MISMO premio
+      registrarGiro(usuario, fingerprint, premioTxt)
+        .catch(e => {
           console.error(e);
           mensaje.innerText += `\n⚠️ No se pudo registrar la jugada. Intentá más tarde.`;
-        }
-      }, 3000);
+        })
+        .finally(() => {
+          // Si querés permitir reintento visual (aunque backend bloquea por día), descomentá:
+          // if (boton) boton.disabled = false;
+          animEnCurso = false;
+        });
     }
+  }, 100);
+}
 
     /* ===== Confeti dorado/humo ===== */
     function lanzarConfeti() {
